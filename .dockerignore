@@ -1,0 +1,6 @@
+.git
+.agents
+.codex
+Tamagotchi/build
+Tamagotchi/node_modules
+*.pbw

@@ -9,9 +9,29 @@ Fork of the Tamagotchi Emulator 4 Pebble by StefanBauwens with following changes
 
 - to do: upload script to modify tama-p1.bin that are found all around the internet to be compatible
 
-- With binary on watch basically all phone dependency has been removed. App runs without the need of the phone 
+- With binary on watch basically all phone dependency has been removed. App runs without the need of the phone
 
 - Note: bin file needs to be put into resources/data folder, not provided here in this repo!
+
+## Docker build server
+
+This repository includes a Docker setup that builds the Pebble app with the Rebble SDK and serves the generated `.pbw` through nginx.
+
+```sh
+docker compose up -d --build
+```
+
+The package is then available at:
+
+```text
+http://localhost:8080/Tamagotchi.pbw
+```
+
+Set `TAMAGOTCHI_PORT` to use a different host port:
+
+```sh
+TAMAGOTCHI_PORT=9000 docker compose up -d --build
+```
 
 
 # Tamagotchi Emulator 4 Pebble
@@ -31,11 +51,22 @@ Powered by [TamaLib](https://github.com/jcrona/tamalib/).
 ![Tamagotchi watchapp screenshot gabbro](Tamagotchi/screenshots/gabbro1.png)
 
 ## Features & Updates:
-v1.0:
+v1.3.:
+- Bug fixes & Optimisations
+- TamaLIB update (breaking change, requires upgrading to v1.1 of Tamagotchi API if you're self hosting the service!)
+
+v1.2.:
+- Add audio for Pebble watches with speaker
+- Add vibrations for Pebble watches without speaker
+
+v1.1.:
+- Fix bug where loading state from the server would continually fail in some cases
+
+v1.0.:
 - Tamagotchi P1/P2 Emulation
 - Support for external ROM integration (via Settings page)
 - State saving & loading on closing/opening watchapp
-- Support for [Tamagotchi API Server](https://github.com/StefanBauwens/Tamagotchi-API) 
+- Support for [Tamagotchi API Server](https://github.com/StefanBauwens/Tamagotchi-API)
 - Support for Time (Steel), Time Round, Pebble 2 (Duo), Time 2 and Round 2.
 
 ## Getting a ROM url
@@ -43,20 +74,22 @@ To run this Emulator it will need a Tamagotchi P1 or P2 rom in u12_t form in tex
 Thank you to the kind person for creating these!
 
 ## Server for running in background (optional)
-By default the Tamagotchi will save its state when quitting the app and restore it the next time you use it. 
+By default the Tamagotchi will save its state when quitting the app and restore it the next time you use it.
 
-It works fine like this but if you would like your tamagotchi to continue working in the backround you can make use of my [Tamagotchi API Service](https://github.com/StefanBauwens/Tamagotchi-API) and run it on your own server. 
+It works fine like this but if you would like your tamagotchi to continue working in the backround you can make use of my [Tamagotchi API Service](https://github.com/StefanBauwens/Tamagotchi-API) and run it on your own server.
 
-Once set up, when you close the app your save state is sent to your server and continues to live on there. When you open the watch app next time, the save state is fetched from the server and runs on the Pebble again. 
+Once set up, when you close the app your save state is sent to your server and continues to live on there. When you open the watch app next time, the save state is fetched from the server and runs on the Pebble again.
 
 ## How to use
-You can look up the original instructions for the Tamagotchi P1 toy. 
-A, B and C buttons are mapped to UP, SELECT and DOWN buttons respectively. Pressing the BACK button saves the state and quits the app.
+You can look up the original instructions for the Tamagotchi P1 toy.
+A, B and C buttons are mapped to UP, SELECT and DOWN buttons respectively.
+Use A + C together to (un)mute audio/vibrations.
+Pressing the BACK button saves the state and quits the app.
 
 ## Issues
 I've created this with support for most Pebble watches, but have only tested this on a Pebble 2 Duo so far. The emulator on CloudPebble seemed to work fine and so I hope it's also the case with the actual watches. If any major bugs are noticed feel free to create an issue here on Github!
 
 ## Credits
-This project implements [TamaLib](https://github.com/jcrona/tamalib/) by [jcrona](https://github.com/jcrona). I also want to point out that jcrona has created [PebbleGotchi](https://github.com/jcrona/pebblegotchi) about 5 years ago. 
+This project implements [TamaLib](https://github.com/jcrona/tamalib/) by [jcrona](https://github.com/jcrona). I also want to point out that jcrona has created [PebbleGotchi](https://github.com/jcrona/pebblegotchi) about 5 years ago.
 
 I believe my implementation to be significantly different to warrant my own publication in the store. In fact PebbleGotchi was never uploaded to the Pebble store as it required the end user to supply it with a ROM and recompile.

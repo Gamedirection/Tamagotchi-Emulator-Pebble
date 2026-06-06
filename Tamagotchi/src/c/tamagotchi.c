@@ -13,15 +13,16 @@
 #define VRAM_SIZE (64 + 13)
 #define BYTES_PER_LINE 32
 #define BITS_PER_BYTE 8
+#define P1P2_ID 0xFA2
 
 //#undef PBL_COLOR // only used for testing B&W
 
 #include <pebble.h>
 #include "tamalib/tamalib.h"
 #include "tama_rtc_sync.h"
-//#include "rom.h" 
+//#include "rom.h"
 
-static void initTamalib(void); 
+static void initTamalib(void);
 static void saveCurrentState(bool isAutoSave);
 static void saveCurrentStateAndQuit();
 static void autosave_timer_callback(void *data);
@@ -241,6 +242,12 @@ static void Message(const char * text) // Write message to screen
     text_layer_set_text(s_text_layer, text);
 }
 
+uint32_t millis() {
+  time_t tt = time(NULL);
+  uint16_t milliseconds = time_ms(&tt, NULL);
+  return tt * 1000 + milliseconds;
+}
+
 /*****************************/
 /*   START HAL T FUNCTIONS   */
 /*****************************/
@@ -262,12 +269,12 @@ static timestamp_t hal_get_timestamp(void)
   time_ms(&seconds, &milliseconds);
 
   //return microseconds
-  return (int)seconds * 1000000 + (int)milliseconds * 1000; 
+  return (int)seconds * 1000000 + (int)milliseconds * 1000;
 }
 
 static void hal_sleep_until(timestamp_t ts) //this makes the time be accurate
 {
-  while((int) (ts - hal_get_timestamp()) > 0);
+  (void)ts;
 }
 
 static void hal_update_screen(void) //since we're not using tamalib_mainloop we must call this ourselves
@@ -388,6 +395,8 @@ static hal_t hal = {
 /*   END HAL T FUNCTIONS   */
 /***************************/
 
+// TODO: Seems to only work when E0C6S48_SUPPORT is not defined. Use segment information to restore properly?
+// Will likely not work with digimon as well
 void set_screen_to_last_state(uint8_t *fullRam) { // gets screen data from memory and sets it to the screen
     uint8_t vram[VRAM_SIZE];
 
@@ -427,7 +436,7 @@ void set_screen_to_last_state(uint8_t *fullRam) { // gets screen data from memor
         int baseY = (i / BYTES_PER_LINE) * BITS_PER_BYTE;
 
         for (int bitIndex = 0; bitIndex < BITS_PER_BYTE; bitIndex++) {
-          int bit = (byte >> bitIndex) & 1;  
+          int bit = (byte >> bitIndex) & 1;
           //int bit = (byte >> (7 - bitIndex)) & 1;
 
             int y = baseY + bitIndex;
@@ -448,8 +457,8 @@ static void milli_tick() //runs once every ms.
     for (size_t i = 0; i < STEPS_PER_DELAY; i++)
     {
         tamalib_step();
-    } 
-  } 
+    }
+  }
   milli_tick_handler = app_timer_register(STEP_DELAY, milli_tick, NULL); // calls itself in 1ms
 }
 
@@ -519,7 +528,7 @@ static void on_button_back(ClickRecognizerRef recognizer, void *context) //back
   // Always persist locally first (fast, synchronous, guaranteed).
   // Then trigger the JS save+quit flow (which goes through phone roundtrip).
   persistSaveState();
-  saveCurrentStateAndQuit(); 
+  saveCurrentStateAndQuit();
 }
 
 static void click_config_provider(void *context) {
@@ -527,7 +536,7 @@ static void click_config_provider(void *context) {
   window_raw_click_subscribe(BUTTON_ID_UP, on_button_up_press, on_button_up_release, NULL);
   window_raw_click_subscribe(BUTTON_ID_SELECT, on_button_select_press, on_button_select_release, NULL);
   window_raw_click_subscribe(BUTTON_ID_DOWN, on_button_down_press, on_button_down_release, NULL);
-  
+
   window_single_click_subscribe(BUTTON_ID_BACK, on_button_back);
 }
 
@@ -549,7 +558,7 @@ static void icons_update_proc(Layer *layer, GContext *ctx) {
     uint8_t xPos = 41 + ((s_selectedIcon % 4) * 30);
     uint8_t yPos = (s_selectedIcon > 3 ? 176 : 118);
     #elif defined(PBL_PLATFORM_GABBRO)
-    uint8_t xPos = 12 + ((s_selectedIcon%4) * 40); 
+    uint8_t xPos = 12 + ((s_selectedIcon%4) * 40);
     uint8_t yPos = (s_selectedIcon > 3 ? 120 : 0);
     #else
     uint8_t xPos = 12 + ((s_selectedIcon%4) * 32);
@@ -600,7 +609,7 @@ static void icons_update_proc(Layer *layer, GContext *ctx) {
     // Show attention icon at the rightmost position in the bottom row
     graphics_draw_bitmap_in_rect(ctx, s_bitmap_icon8, GRect(41 + 3*30, 176, 27, 22));
     #elif defined(PBL_PLATFORM_GABBRO)
-    graphics_draw_bitmap_in_rect(ctx, s_bitmap_icon8, GRect(12+(40*3), 120, 27, 22)); 
+    graphics_draw_bitmap_in_rect(ctx, s_bitmap_icon8, GRect(12+(40*3), 120, 27, 22));
     #else
     graphics_draw_bitmap_in_rect(ctx, s_bitmap_icon8, GRect(108, 100, 22, 18));
     #endif
@@ -722,7 +731,7 @@ static void hands_update_proc(Layer *layer, GContext *ctx)
 }
 
 // Handles drawing screen layer
-static void screen_update_proc(Layer *layer, GContext *ctx) { 
+static void screen_update_proc(Layer *layer, GContext *ctx) {
   set_activity(ACT_DRAW_SCREEN_PROC);
   // draw new screen
   graphics_context_set_fill_color(ctx, GColorBlack);
@@ -747,7 +756,7 @@ static void screen_update_proc(Layer *layer, GContext *ctx) {
   }
 }
 
-static void prv_inbox_received_handler(DictionaryIterator *iter, void *context) {  
+static void prv_inbox_received_handler(DictionaryIterator *iter, void *context) {
   APP_LOG(APP_LOG_LEVEL_DEBUG, "inbox received");
   set_activity(ACT_INBOX_SETTINGS);
 
@@ -887,27 +896,30 @@ static void prv_inbox_received_handler(DictionaryIterator *iter, void *context) 
     int offset = offset_t->value->int16;
     uint8_t *chunk = chunk_t->value->data;
     int index = 0;
+    bool_t isP1P2 = false;
 
     // Convert bytes → u12_t values
     for (int i = 0; i < chunk_t->length; i += 2) {
         index = (offset + i) / 2;
 
-        if (index >= 6144) break; // safety
+        if (index >= 8192) break; // safety
 
         u12_t value = chunk[i] | (chunk[i + 1] << 8);
 
         g_program[index] = value & 0x0FFF; // ensure 12-bit
+        isP1P2 = g_program[0] == P1P2_ID;
 
         static char progress_text[25];
-        int percentage = (offset * 100)/12288;
+
+        int percentage = (offset * 100)/(isP1P2?12288:16384);
         snprintf(progress_text, sizeof(progress_text), "Loading ROM %d%%", percentage);
         Message(progress_text);
     }
-    if (index == 6143)
+    if ((isP1P2 && index == 6143) || index == 8191) // if detects P1/P2 stop at 6143, else stop at 8191)
     {
       // we reached the end and can safely start now
       Message("Loading ROM 100%");
-      APP_LOG(APP_LOG_LEVEL_DEBUG, "Reached end of ROM!");
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "Reached end of ROM! %d", index);
       s_hasReceivedRom = true;
 
       // Check local watch storage first — if we have a recent persist-state,
@@ -953,7 +965,14 @@ static void prv_inbox_received_handler(DictionaryIterator *iter, void *context) 
   Tuple *STATEflags_t = dict_find(iter, MESSAGE_KEY_STATEflags);
 
   Tuple *STATEtick_counter_t = dict_find(iter, MESSAGE_KEY_STATEtick_counter);
-  Tuple *STATEclk_timer_timestamp_t = dict_find(iter, MESSAGE_KEY_STATEclk_timer_timestamp);
+  Tuple *STATEclk_timer_2hz_timestamp_t = dict_find(iter, MESSAGE_KEY_STATEclk_timer_2hz_timestamp);
+  Tuple *STATEclk_timer_4hz_timestamp_t = dict_find(iter, MESSAGE_KEY_STATEclk_timer_4hz_timestamp);
+  Tuple *STATEclk_timer_8hz_timestamp_t = dict_find(iter, MESSAGE_KEY_STATEclk_timer_8hz_timestamp);
+  Tuple *STATEclk_timer_16hz_timestamp_t = dict_find(iter, MESSAGE_KEY_STATEclk_timer_16hz_timestamp);
+  Tuple *STATEclk_timer_32hz_timestamp_t = dict_find(iter, MESSAGE_KEY_STATEclk_timer_32hz_timestamp);
+  Tuple *STATEclk_timer_64hz_timestamp_t = dict_find(iter, MESSAGE_KEY_STATEclk_timer_64hz_timestamp);
+  Tuple *STATEclk_timer_128hz_timestamp_t = dict_find(iter, MESSAGE_KEY_STATEclk_timer_128hz_timestamp);
+  Tuple *STATEclk_timer_256hz_timestamp_t = dict_find(iter, MESSAGE_KEY_STATEclk_timer_256hz_timestamp);
   Tuple *STATEprog_timer_timestamp_t = dict_find(iter, MESSAGE_KEY_STATEprog_timer_timestamp);
   Tuple *STATEprog_timer_enabled_t = dict_find(iter, MESSAGE_KEY_STATEprog_timer_enabled);
   Tuple *STATEprog_timer_data_t = dict_find(iter, MESSAGE_KEY_STATEprog_timer_data);
@@ -999,7 +1018,16 @@ static void prv_inbox_received_handler(DictionaryIterator *iter, void *context) 
     uint8_t state_flags = STATEflags_t->value->uint8;
 
     uint32_t state_tick_counter = STATEtick_counter_t->value->uint32;
-    uint32_t state_clk_timer_timestamp = STATEclk_timer_timestamp_t->value->uint32;
+
+    uint32_t state_clk_timer_2hz_timestamp = STATEclk_timer_2hz_timestamp_t->value->uint32;
+    uint32_t state_clk_timer_4hz_timestamp = STATEclk_timer_4hz_timestamp_t->value->uint32;
+    uint32_t state_clk_timer_8hz_timestamp = STATEclk_timer_8hz_timestamp_t->value->uint32;
+    uint32_t state_clk_timer_16hz_timestamp = STATEclk_timer_16hz_timestamp_t->value->uint32;
+    uint32_t state_clk_timer_32hz_timestamp = STATEclk_timer_32hz_timestamp_t->value->uint32;
+    uint32_t state_clk_timer_64hz_timestamp = STATEclk_timer_64hz_timestamp_t->value->uint32;
+    uint32_t state_clk_timer_128hz_timestamp = STATEclk_timer_128hz_timestamp_t->value->uint32;
+    uint32_t state_clk_timer_256hz_timestamp = STATEclk_timer_256hz_timestamp_t->value->uint32;
+
     uint32_t state_prog_timer_timestamp = STATEprog_timer_timestamp_t->value->uint32;
     uint8_t state_prog_timer_enabled = STATEprog_timer_enabled_t->value->uint8;
     uint8_t state_prog_timer_data = STATEprog_timer_data_t->value->uint8;
@@ -1019,7 +1047,16 @@ static void prv_inbox_received_handler(DictionaryIterator *iter, void *context) 
     stateToLoad.flags = state_flags;
 
     stateToLoad.tick_counter = state_tick_counter;
-    stateToLoad.clk_timer_timestamp = state_clk_timer_timestamp;
+
+    stateToLoad.clk_timer_2hz_timestamp  = state_clk_timer_2hz_timestamp;
+    stateToLoad.clk_timer_4hz_timestamp  = state_clk_timer_4hz_timestamp;
+    stateToLoad.clk_timer_8hz_timestamp  = state_clk_timer_8hz_timestamp;
+    stateToLoad.clk_timer_16hz_timestamp = state_clk_timer_16hz_timestamp;
+    stateToLoad.clk_timer_32hz_timestamp = state_clk_timer_32hz_timestamp;
+    stateToLoad.clk_timer_64hz_timestamp = state_clk_timer_64hz_timestamp;
+    stateToLoad.clk_timer_128hz_timestamp = state_clk_timer_128hz_timestamp;
+    stateToLoad.clk_timer_256hz_timestamp = state_clk_timer_256hz_timestamp;
+
     stateToLoad.prog_timer_timestamp = state_prog_timer_timestamp;
     stateToLoad.prog_timer_enabled = state_prog_timer_enabled;
     stateToLoad.prog_timer_data = state_prog_timer_data;
@@ -1027,29 +1064,29 @@ static void prv_inbox_received_handler(DictionaryIterator *iter, void *context) 
     stateToLoad.call_depth = state_call_depth;
 
     stateToLoad.interrupts[0].factor_flag_reg = state_interrupts[0];
-    stateToLoad.interrupts[0].mask_reg        = state_interrupts[1];  
-    stateToLoad.interrupts[0].triggered       = state_interrupts[2];  
-    stateToLoad.interrupts[0].vector          = state_interrupts[3];  
+    stateToLoad.interrupts[0].mask_reg        = state_interrupts[1];
+    stateToLoad.interrupts[0].triggered       = state_interrupts[2];
+    stateToLoad.interrupts[0].vector          = state_interrupts[3];
     stateToLoad.interrupts[1].factor_flag_reg = state_interrupts[4];
-    stateToLoad.interrupts[1].mask_reg        = state_interrupts[5];  
-    stateToLoad.interrupts[1].triggered       = state_interrupts[6];  
-    stateToLoad.interrupts[1].vector          = state_interrupts[7];  
+    stateToLoad.interrupts[1].mask_reg        = state_interrupts[5];
+    stateToLoad.interrupts[1].triggered       = state_interrupts[6];
+    stateToLoad.interrupts[1].vector          = state_interrupts[7];
     stateToLoad.interrupts[2].factor_flag_reg = state_interrupts[8];
-    stateToLoad.interrupts[2].mask_reg        = state_interrupts[9];  
-    stateToLoad.interrupts[2].triggered       = state_interrupts[10];  
-    stateToLoad.interrupts[2].vector          = state_interrupts[11]; 
+    stateToLoad.interrupts[2].mask_reg        = state_interrupts[9];
+    stateToLoad.interrupts[2].triggered       = state_interrupts[10];
+    stateToLoad.interrupts[2].vector          = state_interrupts[11];
     stateToLoad.interrupts[3].factor_flag_reg = state_interrupts[12];
-    stateToLoad.interrupts[3].mask_reg        = state_interrupts[13];  
-    stateToLoad.interrupts[3].triggered       = state_interrupts[14];  
-    stateToLoad.interrupts[3].vector          = state_interrupts[15]; 
+    stateToLoad.interrupts[3].mask_reg        = state_interrupts[13];
+    stateToLoad.interrupts[3].triggered       = state_interrupts[14];
+    stateToLoad.interrupts[3].vector          = state_interrupts[15];
     stateToLoad.interrupts[4].factor_flag_reg = state_interrupts[16];
-    stateToLoad.interrupts[4].mask_reg        = state_interrupts[17];  
-    stateToLoad.interrupts[4].triggered       = state_interrupts[18];  
-    stateToLoad.interrupts[4].vector          = state_interrupts[19];         
+    stateToLoad.interrupts[4].mask_reg        = state_interrupts[17];
+    stateToLoad.interrupts[4].triggered       = state_interrupts[18];
+    stateToLoad.interrupts[4].vector          = state_interrupts[19];
     stateToLoad.interrupts[5].factor_flag_reg = state_interrupts[20];
-    stateToLoad.interrupts[5].mask_reg        = state_interrupts[21];  
-    stateToLoad.interrupts[5].triggered       = state_interrupts[22];  
-    stateToLoad.interrupts[5].vector          = state_interrupts[23]; 
+    stateToLoad.interrupts[5].mask_reg        = state_interrupts[21];
+    stateToLoad.interrupts[5].triggered       = state_interrupts[22];
+    stateToLoad.interrupts[5].vector          = state_interrupts[23];
 
     memcpy(stateToLoad.memory, state_memory, sizeof(stateToLoad.memory));
 
@@ -1186,7 +1223,7 @@ static void main_window_load(Window *window) {
   // Get information about the Window
   Layer *window_layer = window_get_root_layer(window);
 
-  // Create GBitmap for background 
+  // Create GBitmap for background
 #if defined(PBL_COLOR)
   s_bitmap_bg = gbitmap_create_with_resource(RESOURCE_ID_BG_IMAGE);
 #else
@@ -1234,11 +1271,11 @@ static void main_window_load(Window *window) {
   // Create icons layer
 #if defined(PBL_PLATFORM_CHALK)
   s_icons_layer = layer_create(GRect(0+18, 24+6, 144, 146));
-#elif defined(PBL_PLATFORM_GABBRO) 
-  s_icons_layer = layer_create(GRect(0+45, 60, 180, 183)); 
+#elif defined(PBL_PLATFORM_GABBRO)
+  s_icons_layer = layer_create(GRect(0+45, 60, 180, 183));
 #elif defined(PBL_PLATFORM_EMERY)
   // Icons layer covers most of the screen so we can use absolute-ish coords inside
-  s_icons_layer = layer_create(GRect(0, 0, 200, 228)); 
+  s_icons_layer = layer_create(GRect(0, 0, 200, 228));
 #else
   s_icons_layer = layer_create(GRect(0, 24, 144, 146));
 #endif
@@ -1262,7 +1299,7 @@ static void main_window_load(Window *window) {
 #endif
   layer_set_update_proc(s_screen_layer, screen_update_proc);
 
-  // Add to window  
+  // Add to window
   layer_add_child(window_layer, s_screen_layer);
 
   // Font
@@ -1270,13 +1307,13 @@ static void main_window_load(Window *window) {
 
   // Create text layer
   #if defined(PBL_PLATFORM_CHALK)
-  s_text_layer = text_layer_create(GRect(6+18, 60+6, 128, 50)); 
+  s_text_layer = text_layer_create(GRect(6+18, 60+6, 128, 50));
   #elif defined(PBL_PLATFORM_GABBRO)
   s_text_layer = text_layer_create(GRect(50, 60+46, 158, 50));
   #elif defined(PBL_PLATFORM_EMERY)
   s_text_layer = text_layer_create(GRect(10, 100, 180, 30));
-  #else   
-  s_text_layer = text_layer_create(GRect(6, 60, 128, 50)); 
+  #else
+  s_text_layer = text_layer_create(GRect(6, 60, 128, 50));
   #endif
   text_layer_set_background_color(s_text_layer, GColorClear);
   //text_layer_set_font(s_text_layer, s_lcd_font);
@@ -1484,7 +1521,7 @@ static void initTamalib() {
 
     cpu_init_from_state(g_program, &stateToLoad, NULL, 1000000);
     APP_LOG(APP_LOG_LEVEL_DEBUG, "cpu_init_from_state done");
-    set_screen_to_last_state(stateToLoad.memory); 
+    set_screen_to_last_state(stateToLoad.memory);
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Save state loaded!");
   }
   else
@@ -1678,10 +1715,10 @@ static void saveCurrentState(bool isAutoSave)
   if (!isAutoSave) {
     Message("Saving state...");
   }
-  
+
   APP_LOG(APP_LOG_LEVEL_DEBUG, "Getting save file and sending to phone... (autosave=%d)", (int)isAutoSave);
 
-  // Send save file to phone 
+  // Send save file to phone
   flat_state_t saveState = cpu_get_flat_state();
 
   // Declare the dictionary's iterator
@@ -1703,9 +1740,17 @@ static void saveCurrentState(bool isAutoSave)
     dict_write_int(out_iter, MESSAGE_KEY_STATEnp, &saveState.np, sizeof(uint8_t), false);
     dict_write_int(out_iter, MESSAGE_KEY_STATEsp, &saveState.sp, sizeof(uint8_t), false);
     dict_write_int(out_iter, MESSAGE_KEY_STATEflags, &saveState.flags, sizeof(uint8_t), false);
-    
+
     dict_write_int(out_iter, MESSAGE_KEY_STATEtick_counter, &saveState.tick_counter, sizeof(uint32_t), false);
-    dict_write_int(out_iter, MESSAGE_KEY_STATEclk_timer_timestamp, &saveState.clk_timer_timestamp, sizeof(uint32_t), false);
+    dict_write_int(out_iter, MESSAGE_KEY_STATEclk_timer_2hz_timestamp, &saveState.clk_timer_2hz_timestamp, sizeof(uint32_t), false);
+    dict_write_int(out_iter, MESSAGE_KEY_STATEclk_timer_4hz_timestamp, &saveState.clk_timer_4hz_timestamp, sizeof(uint32_t), false);
+    dict_write_int(out_iter, MESSAGE_KEY_STATEclk_timer_8hz_timestamp, &saveState.clk_timer_8hz_timestamp, sizeof(uint32_t), false);
+    dict_write_int(out_iter, MESSAGE_KEY_STATEclk_timer_16hz_timestamp, &saveState.clk_timer_16hz_timestamp, sizeof(uint32_t), false);
+    dict_write_int(out_iter, MESSAGE_KEY_STATEclk_timer_32hz_timestamp, &saveState.clk_timer_32hz_timestamp, sizeof(uint32_t), false);
+    dict_write_int(out_iter, MESSAGE_KEY_STATEclk_timer_64hz_timestamp, &saveState.clk_timer_64hz_timestamp, sizeof(uint32_t), false);
+    dict_write_int(out_iter, MESSAGE_KEY_STATEclk_timer_128hz_timestamp, &saveState.clk_timer_128hz_timestamp, sizeof(uint32_t), false);
+    dict_write_int(out_iter, MESSAGE_KEY_STATEclk_timer_256hz_timestamp, &saveState.clk_timer_256hz_timestamp, sizeof(uint32_t), false);
+
     dict_write_int(out_iter, MESSAGE_KEY_STATEprog_timer_timestamp, &saveState.prog_timer_timestamp, sizeof(uint32_t), false);
     dict_write_int(out_iter, MESSAGE_KEY_STATEprog_timer_enabled, &saveState.prog_timer_enabled, sizeof(uint8_t), false);
     dict_write_int(out_iter, MESSAGE_KEY_STATEprog_timer_data, &saveState.prog_timer_data, sizeof(uint8_t), false);
@@ -1901,7 +1946,14 @@ static bool persistSaveState(void)
     uint8_t  sp;
     uint8_t  flags;
     uint32_t tick_counter;
-    uint32_t clk_timer_timestamp;
+    uint32_t clk_timer_2hz_timestamp;
+    uint32_t clk_timer_4hz_timestamp;
+    uint32_t clk_timer_8hz_timestamp;
+    uint32_t clk_timer_16hz_timestamp;
+    uint32_t clk_timer_32hz_timestamp;
+    uint32_t clk_timer_64hz_timestamp;
+    uint32_t clk_timer_128hz_timestamp;
+    uint32_t clk_timer_256hz_timestamp;
     uint32_t prog_timer_timestamp;
     uint8_t  prog_timer_enabled;
     uint8_t  prog_timer_data;
@@ -1921,7 +1973,14 @@ static bool persistSaveState(void)
   hdr.sp = st.sp;
   hdr.flags = st.flags;
   hdr.tick_counter = st.tick_counter;
-  hdr.clk_timer_timestamp = st.clk_timer_timestamp;
+  hdr.clk_timer_2hz_timestamp = st.clk_timer_2hz_timestamp;
+  hdr.clk_timer_4hz_timestamp = st.clk_timer_4hz_timestamp;
+  hdr.clk_timer_8hz_timestamp = st.clk_timer_8hz_timestamp;
+  hdr.clk_timer_16hz_timestamp = st.clk_timer_16hz_timestamp;
+  hdr.clk_timer_32hz_timestamp = st.clk_timer_32hz_timestamp;
+  hdr.clk_timer_64hz_timestamp = st.clk_timer_64hz_timestamp;
+  hdr.clk_timer_128hz_timestamp = st.clk_timer_128hz_timestamp;
+  hdr.clk_timer_256hz_timestamp = st.clk_timer_256hz_timestamp;
   hdr.prog_timer_timestamp = st.prog_timer_timestamp;
   hdr.prog_timer_enabled = st.prog_timer_enabled;
   hdr.prog_timer_data = st.prog_timer_data;
@@ -1992,7 +2051,14 @@ static bool persistLoadState(void)
     uint16_t pc; uint16_t x; uint16_t y;
     uint8_t  a; uint8_t b; uint8_t np; uint8_t sp; uint8_t flags;
     uint32_t tick_counter;
-    uint32_t clk_timer_timestamp;
+    uint32_t clk_timer_2hz_timestamp;
+    uint32_t clk_timer_4hz_timestamp;
+    uint32_t clk_timer_8hz_timestamp;
+    uint32_t clk_timer_16hz_timestamp;
+    uint32_t clk_timer_32hz_timestamp;
+    uint32_t clk_timer_64hz_timestamp;
+    uint32_t clk_timer_128hz_timestamp;
+    uint32_t clk_timer_256hz_timestamp;
     uint32_t prog_timer_timestamp;
     uint8_t  prog_timer_enabled;
     uint8_t  prog_timer_data;
@@ -2017,7 +2083,14 @@ static bool persistLoadState(void)
   stateToLoad.sp = hdr.sp;
   stateToLoad.flags = hdr.flags;
   stateToLoad.tick_counter = hdr.tick_counter;
-  stateToLoad.clk_timer_timestamp = hdr.clk_timer_timestamp;
+  stateToLoad.clk_timer_2hz_timestamp = hdr.clk_timer_2hz_timestamp;
+  stateToLoad.clk_timer_4hz_timestamp = hdr.clk_timer_4hz_timestamp;
+  stateToLoad.clk_timer_8hz_timestamp = hdr.clk_timer_8hz_timestamp;
+  stateToLoad.clk_timer_16hz_timestamp = hdr.clk_timer_16hz_timestamp;
+  stateToLoad.clk_timer_32hz_timestamp = hdr.clk_timer_32hz_timestamp;
+  stateToLoad.clk_timer_64hz_timestamp = hdr.clk_timer_64hz_timestamp;
+  stateToLoad.clk_timer_128hz_timestamp = hdr.clk_timer_128hz_timestamp;
+  stateToLoad.clk_timer_256hz_timestamp = hdr.clk_timer_256hz_timestamp;
   stateToLoad.prog_timer_timestamp = hdr.prog_timer_timestamp;
   stateToLoad.prog_timer_enabled = hdr.prog_timer_enabled;
   stateToLoad.prog_timer_data = hdr.prog_timer_data;

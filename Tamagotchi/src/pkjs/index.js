@@ -7,6 +7,10 @@ const APIKEY_KEY = "APIKEY";
 const ROMURL_KEY = "ROMURL";
 const SERVER_SAVE_FAILED_KEY = "SERVER_SAVE_FAILED";
 
+const CURRENT_VERSION = "1.3";
+const LAST_VERSION_NOTIFIED_KEY = "LAST_VERSION_NOTIFIED";
+const RELEASE_NOTE_TITLE = "Tamagotchi V1.3.0 Release Notes";
+const RELEASE_NOTE_BODY = "ATTENTION: Bug fixes + TamaLIB update. Old save states may no longer work and a reset is likely needed :( Update your Tamagotchi API Server manually if used."
 
 // Import the Clay package
 var Clay = require('@rebble/clay');
@@ -89,7 +93,7 @@ function FetchROM()
 
         let stringArray = ROMText.split(", ");
         let values = stringArray.map(s => parseInt(s, 16)); // convert to integers
-        if (values.length !== 6144) // exact length of P1 rom
+        if (values.length !== 6144/* && values.length !== 8192*/) // 6144 exact length of a E0C6S46 (P1/P2) ROM; 8192 exact length of a E0C6S48 ROM (Angel, Digimon, Mothra...)
         {
             console.log("Incorrect ROM!");
             Pebble.sendAppMessage({'JSMessage': "Incorrect ROM!"});
@@ -113,12 +117,12 @@ function SendROM(buffer) {
     console.log("Trying to send ROM...");
 
     // send chunked to watch
-    const CHUNK_SIZE = 2048; //TODO test
+    const CHUNK_SIZE = 2048;
     let offset = 0;
     sendNextChunk(buffer);
 
     function sendNextChunk(data) {
-        if (offset >= data.length) 
+        if (offset >= data.length)
         {
             console.log("Finished sending ROM!");
             SendSaveStateToWatch();
@@ -138,7 +142,7 @@ function SendROM(buffer) {
         },
         function() { // on fail
             console.log("Failed to send chunk! Retrying...");
-            setTimeout(() => { sendNextChunk(data) }, 100); 
+            setTimeout(() => { sendNextChunk(data) }, 100);
         }
         );
     }
@@ -151,7 +155,7 @@ function SendSaveStateToWatch() // Send last save state back to watch
     {
         serverSaveFailed = (localStorage.getItem(SERVER_SAVE_FAILED_KEY) == "true");
         console.log("serversavefailed: " + serverSaveFailed);
-        localStorage.setItem(SERVER_SAVE_FAILED_KEY, false); 
+        localStorage.setItem(SERVER_SAVE_FAILED_KEY, false);
     }
 
     if(localStorage.getItem(APISERVER_KEY) !== null && localStorage.getItem(APISERVER_KEY).trim().length !== 0)
@@ -164,7 +168,7 @@ function SendSaveStateToWatch() // Send last save state back to watch
         }
 
         Pebble.sendAppMessage({'JSMessage': "Trying to sync with server..."});
-        xhrRequest(localStorage.getItem(APISERVER_KEY) + "/state", 'GET', null, 
+        xhrRequest(localStorage.getItem(APISERVER_KEY) + "/state", 'GET', null,
         (responseText) => { // success
             console.log("Successfully fetched save state from server: " + responseText);
 
@@ -188,7 +192,14 @@ function SendSaveStateToWatch() // Send last save state back to watch
                 'STATEsp': serverState.sp,
                 'STATEflags': serverState.flags,
                 'STATEtick_counter': serverState.tick_counter,
-                'STATEclk_timer_timestamp': serverState.clk_timer_timestamp,
+                'STATEclk_timer_2hz_timestamp': serverState.clk_timer_2hz_timestamp,
+                'STATEclk_timer_4hz_timestamp': serverState.clk_timer_4hz_timestamp,
+                'STATEclk_timer_8hz_timestamp': serverState.clk_timer_8hz_timestamp,
+                'STATEclk_timer_16hz_timestamp': serverState.clk_timer_16hz_timestamp,
+                'STATEclk_timer_32hz_timestamp': serverState.clk_timer_32hz_timestamp,
+                'STATEclk_timer_64hz_timestamp': serverState.clk_timer_64hz_timestamp,
+                'STATEclk_timer_128hz_timestamp': serverState.clk_timer_128hz_timestamp,
+                'STATEclk_timer_256hz_timestamp': serverState.clk_timer_256hz_timestamp,
                 'STATEprog_timer_timestamp': serverState.prog_timer_timestamp,
                 'STATEprog_timer_enabled': serverState.prog_timer_enabled,
                 'STATEprog_timer_data': serverState.prog_timer_data,
@@ -210,7 +221,7 @@ function SendSaveStateToWatch() // Send last save state back to watch
             console.log("Sending save file from server to watch....");
             SendDictRetrying(parsedDict);
 
-        }, 
+        },
         (error, response) => { // fail
             console.log("Failed to fetch from server. Using last save as backup. Error: " + error);
             Pebble.sendAppMessage({'JSMessage': "Sync failed! Restoring from local storage..."});
@@ -225,14 +236,30 @@ function SendSaveStateToWatch() // Send last save state back to watch
 
 function SendDictRetrying(dict)
 {
-    Pebble.sendAppMessage(dict, 
-    () => { console.log("Success"), 
+    Pebble.sendAppMessage(dict,
+    () => { console.log("Success"),
     () => { // on fail
         console.log("Retrying...");
         setTimeout(() => {
             SendDictRetrying(dict);
-        }, 100); 
-    }}); 
+        }, 100);
+    }});
+}
+
+function toPebbleArgb8(value) {
+    if (typeof value === 'number') {
+        if (value <= 0xFF) { return value; }
+    } else if (typeof value === 'string') {
+        value = value.replace('#', '').replace(/^0x/i, '');
+        value = parseInt(value, 16);
+    } else {
+        return 0xFF;
+    }
+
+    var r = (value >> 16) & 0xFF;
+    var g = (value >> 8) & 0xFF;
+    var b = value & 0xFF;
+    return 0xC0 | ((r >> 6) << 4) | ((g >> 6) << 2) | (b >> 6);
 }
 
  function SendSaveFromLocalStorage()
@@ -250,15 +277,25 @@ function SendDictRetrying(dict)
  }
 
 // Listen for when the watchface is opened
-Pebble.addEventListener('ready', 
+Pebble.addEventListener('ready',
     function(e) {
         console.log('PebbleKit JS ready!');
 
         // Update s_js_ready on watch
         Pebble.sendAppMessage({'JSReady': 1});
 
+        let lastVersionNotified = localStorage.getItem(LAST_VERSION_NOTIFIED_KEY);
+        if (lastVersionNotified === null || lastVersionNotified !== CURRENT_VERSION)
+        {
+            Pebble.showSimpleNotificationOnPebble(
+                RELEASE_NOTE_TITLE,
+                RELEASE_NOTE_BODY
+            );
+            localStorage.setItem(LAST_VERSION_NOTIFIED_KEY, CURRENT_VERSION);
+        }
+
         FetchROM();
-    }   
+    }
 );
 
 // Listen for appmessage
@@ -274,7 +311,7 @@ Pebble.addEventListener('appmessage', function(e) {
   });
 
 // We need to implement this since we are overriding events in webviewclosed
-Pebble.addEventListener('showConfiguration', 
+Pebble.addEventListener('showConfiguration',
     function(e) {
         clay.config = clayConfig;
         Pebble.openURL(clay.generateUrl());
@@ -287,7 +324,7 @@ Pebble.addEventListener('webviewclosed',
         if (e && !e.response) { return; }
 
         let prevRomUrl = localStorage.getItem(ROMURL_KEY);
-    
+
         var dict = clay.getSettings(e.response);
 
         localStorage.setItem(APISERVER_KEY, dict[messageKeys.APIServerUrl]);
@@ -303,7 +340,7 @@ Pebble.addEventListener('webviewclosed',
         if(dict[messageKeys.reset_tamagotchi] == true)
         {
             clay.setSettings("reset_tamagotchi", false);
-            console.log("Reset tamagotchi requested"); 
+            console.log("Reset tamagotchi requested");
             localStorage.removeItem(LAST_STATE_KEY); // delete save file
             Pebble.sendAppMessage({'reset_tamagotchi': 1}); // tell watch to reset
         }
@@ -322,6 +359,24 @@ Pebble.addEventListener('webviewclosed',
         if (messageKeys.SoundVolume in dict) {
             settingsMsg['SoundVolume'] = parseInt(dict[messageKeys.SoundVolume], 10);
         }
+        if (messageKeys.TextColor in dict) {
+            settingsMsg['TextColor'] = toPebbleArgb8(dict[messageKeys.TextColor]);
+        }
+        if (messageKeys.TextOutline in dict) {
+            settingsMsg['TextOutline'] = dict[messageKeys.TextOutline] ? 1 : 0;
+        }
+        if (messageKeys.TextOutlineColor in dict) {
+            settingsMsg['TextOutlineColor'] = toPebbleArgb8(dict[messageKeys.TextOutlineColor]);
+        }
+        if (messageKeys.HandsColor in dict) {
+            settingsMsg['HandsColor'] = toPebbleArgb8(dict[messageKeys.HandsColor]);
+        }
+        if (messageKeys.HandsOutlineColor in dict) {
+            settingsMsg['HandsOutlineColor'] = toPebbleArgb8(dict[messageKeys.HandsOutlineColor]);
+        }
+        if (messageKeys.HandsThickness in dict) {
+            settingsMsg['HandsThickness'] = parseInt(dict[messageKeys.HandsThickness], 10);
+        }
         if (Object.keys(settingsMsg).length > 0) {
             console.log("Forwarding settings to watch: " + JSON.stringify(settingsMsg));
             Pebble.sendAppMessage(settingsMsg);
@@ -335,7 +390,7 @@ function SaveStateAfterClosingApp(saveStateDict, isAutoSave)
     //saveStateDict = {"STATEpc":26,"STATEx":125,"STATEy":525,"STATEa":0,"STATEb":1,"STATEnp":0,"STATEsp":242,"STATEflags":3,"STATEtick_counter":32674418,"STATEclk_timer_timestamp":32669696,"STATEprog_timer_timestamp":32674396,"STATEprog_timer_enabled":1,"STATEprog_timer_data":3,"STATEprog_timer_rld":7,"STATEcall_depth":3,"STATEinterrupts":[0,1,0,12,0,0,0,10,0,0,0,8,7,0,0,6,0,0,0,4,0,8,0,2],"STATEmemory":[48,0,15,18,136,0,0,0,57,20,20,0,0,0,0,0,0,0,0,0,0,0,0,81,62,174,8,125,6,148,15,12,196,0,0,5,0,240,0,0,0,0,0,16,240,5,16,17,0,1,203,0,20,177,20,21,12,16,15,168,1,240,15,6,1,5,8,0,0,0,0,0,255,28,255,28,29,255,29,255,0,127,80,43,63,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,119,113,23,119,113,23,125,112,23,125,119,1,134,4,216,144,248,46,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,60,122,110,110,122,60,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,1,255,6,0,0,16,2,51,192,80,31,0,0,0,0,0,0,0,0,0,0,0,0,255,255,3,4,45,192,5,5,60,240,128,17,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,60,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,60,122,110,110,122,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,1,33,0,0,0],"STATEselected_icon":-1,"STATEshowing_attention_icon":0};
 
     if (saveStateDict.STATEpc === 0 || saveStateDict.STATEmemory[0] === null) return; // don't save bad saves and overwrite
-    
+
     localStorage.setItem(LAST_STATE_KEY, JSON.stringify(saveStateDict));
     console.log("Saved last state to js localstorage... (autosave=" + isAutoSave + ")");
 
@@ -353,7 +408,14 @@ function SaveStateAfterClosingApp(saveStateDict, isAutoSave)
             'sp': saveStateDict.STATEsp,
             'flags': saveStateDict.STATEflags,
             'tick_counter': saveStateDict.STATEtick_counter,
-            'clk_timer_timestamp': saveStateDict.STATEclk_timer_timestamp,
+            'clk_timer_2hz_timestamp': saveStateDict.STATEclk_timer_2hz_timestamp,
+            'clk_timer_4hz_timestamp': saveStateDict.STATEclk_timer_4hz_timestamp,
+            'clk_timer_8hz_timestamp': saveStateDict.STATEclk_timer_8hz_timestamp,
+            'clk_timer_16hz_timestamp': saveStateDict.STATEclk_timer_16hz_timestamp,
+            'clk_timer_32hz_timestamp': saveStateDict.STATEclk_timer_32hz_timestamp,
+            'clk_timer_64hz_timestamp': saveStateDict.STATEclk_timer_64hz_timestamp,
+            'clk_timer_128hz_timestamp': saveStateDict.STATEclk_timer_128hz_timestamp,
+            'clk_timer_256hz_timestamp': saveStateDict.STATEclk_timer_256hz_timestamp,
             'prog_timer_timestamp': saveStateDict.STATEprog_timer_timestamp,
             'prog_timer_enabled': saveStateDict.STATEprog_timer_enabled,
             'prog_timer_data': saveStateDict.STATEprog_timer_data,
@@ -378,7 +440,7 @@ function SaveStateAfterClosingApp(saveStateDict, isAutoSave)
             if (!isAutoSave) {
                 Pebble.sendAppMessage({'JSMessage': "Saved to server!", 'JSFinishedSaving': 1}); // tell watch to finish quitting
             }
-        }, 
+        },
         (error, response) => { // fail
             localStorage.setItem(SERVER_SAVE_FAILED_KEY, true); // keep track that this failed!
             console.log("Failed to send data to server. Error: " + error + "Response: " + response);

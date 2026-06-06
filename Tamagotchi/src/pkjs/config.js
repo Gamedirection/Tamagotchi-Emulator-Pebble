@@ -1,15 +1,15 @@
 module.exports = [
-  { 
-    "type": "heading", 
-    "defaultValue": "Tamagotchi Emu 4 Pebble" 
-  }, 
-  { 
-    "type": "text", 
-    "defaultValue": "Created by Stefan Bauwens for the Spring 2026 Pebble App Contest." 
+  {
+    "type": "heading",
+    "defaultValue": "Tamagotchi Emu 4 Pebble"
   },
-  { 
-    "type": "text", 
-    "defaultValue": "For more info check the readme at <a href='https://github.com/StefanBauwens/Tamagotchi-Emulator-Pebble'>https://github.com/StefanBauwens/Tamagotchi-Emulator-Pebble</a>" 
+  {
+    "type": "text",
+    "defaultValue": "Created by Stefan Bauwens for the Spring 2026 Pebble App Contest."
+  },
+  {
+    "type": "text",
+    "defaultValue": "For more info check the readme at <a href='https://github.com/StefanBauwens/Tamagotchi-Emulator-Pebble'>https://github.com/StefanBauwens/Tamagotchi-Emulator-Pebble</a>"
   },
   {
     "type": "section",
@@ -30,7 +30,7 @@ module.exports = [
         "attributes": {
           "placeholder": "See github readme!"
         }
-      },  
+      },
       {
         "type": "text",
         "defaultValue": "(Optional) Tamagotchi Server for running in background. Leave blank if not used."
@@ -73,6 +73,45 @@ module.exports = [
         "min": 0,
         "max": 100,
         "step": 10
+      },
+      {
+        "type": "color",
+        "messageKey": "TextColor",
+        "label": "Clock text",
+        "defaultValue": "0xFFFFFF"
+      },
+      {
+        "type": "toggle",
+        "messageKey": "TextOutline",
+        "label": "Text outline",
+        "defaultValue": true
+      },
+      {
+        "type": "color",
+        "messageKey": "TextOutlineColor",
+        "label": "Text outline color",
+        "defaultValue": "0x000000"
+      },
+      {
+        "type": "color",
+        "messageKey": "HandsColor",
+        "label": "Clock hands",
+        "defaultValue": "0xFFFFFF"
+      },
+      {
+        "type": "color",
+        "messageKey": "HandsOutlineColor",
+        "label": "Hands outline",
+        "defaultValue": "0x000000"
+      },
+      {
+        "type": "slider",
+        "messageKey": "HandsThickness",
+        "label": "Hands thickness",
+        "defaultValue": 1,
+        "min": 0,
+        "max": 2,
+        "step": 1
       },
       {
         "type": "toggle",
