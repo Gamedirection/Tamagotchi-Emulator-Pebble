@@ -1,42 +1,86 @@
-Fork of the Tamagotchi Emulator 4 Pebble by StefanBauwens with following changes:
-- added auto sync of the time on start and all 2 hours if drift is above 30 seconds
-- autosave all 5 minutes
-- save states are stored on watch (fallback via phone)
-- added vibration when tamagotchi needs something
-- support for tama-p1.bin to have it on the watch, no need to load rom from watch on start anymore
-- added time, battery status and date on the frame around the tamagotchi screen (updated all 30 seconds)
-- some small fix to avoid auto close when idle
+# Tamagotchi Emulator 4 Pebble
 
-- to do: upload script to modify tama-p1.bin that are found all around the internet to be compatible
+Tamagotchi P1/P2 emulator for the Pebble watch, created for the Spring 2026 Pebble Contest.
+Powered by [TamaLib](https://github.com/jcrona/tamalib/).
 
-- With binary on watch basically all phone dependency has been removed. App runs without the need of the phone
+This fork is updated with StefanBauwens `master` and keeps the local watch-first features from this branch.
 
-- Note: bin file needs to be put into resources/data folder, not provided here in this repo!
+## Changes in this fork
+
+- Merged the upstream v1.3 TamaLIB update, ROM handling changes, audio/vibration support, and timer-state format.
+- Added automatic RTC time sync on start and every 2 hours when drift is above 30 seconds.
+- Added auto-save every 5 minutes.
+- Stores save state on the watch first, with phone/server save as a fallback path.
+- Supports an embedded `tama_p1.bin` resource so the app can boot without fetching the ROM from the phone.
+- Adds vibration when the Tamagotchi needs attention.
+- Adds time, battery status, date, and Emery clock-frame display elements.
+- Adds configurable text/hand colors and hand thickness through Clay settings.
+- Keeps lower-CPU stepping and redraw throttling intended to reduce Pebble Time 2/Emery instability.
+- Adds Docker Compose support to build the Pebble `.pbw` and serve it over HTTP.
+
+Note: the ROM file is not distributed here. If you want embedded-ROM boot, put your compatible `tama_p1.bin` in `Tamagotchi/resources/data/tama_p1.bin` before building.
 
 ## Docker build server
 
-This repository includes a Docker setup that builds the Pebble app with the Rebble SDK and serves the generated `.pbw` through nginx.
+The Docker setup builds the Pebble app with the Rebble SDK and serves the generated `.pbw` through nginx.
+
+### Requirements
+
+- Docker
+- Docker Compose plugin or `docker compose`
+
+### Start the server
 
 ```sh
 docker compose up -d --build
 ```
 
-The package is then available at:
+Open or download the built package from:
 
 ```text
 http://localhost:8080/Tamagotchi.pbw
 ```
 
-Set `TAMAGOTCHI_PORT` to use a different host port:
+The landing page is available at:
+
+```text
+http://localhost:8080/
+```
+
+### Use a different port
 
 ```sh
 TAMAGOTCHI_PORT=9000 docker compose up -d --build
 ```
 
+Then download from:
 
-# Tamagotchi Emulator 4 Pebble
-Tamagotchi P1/P2 emulator for the Pebble watch, created for the Spring 2026 Pebble Contest.
-Powered by [TamaLib](https://github.com/jcrona/tamalib/).
+```text
+http://localhost:9000/Tamagotchi.pbw
+```
+
+### Useful Docker commands
+
+```sh
+docker compose ps
+docker compose logs --tail=80
+docker compose down
+docker compose up -d --build
+```
+
+`docker compose up -d --build` rebuilds the Pebble package after code or resource changes and restarts the nginx server.
+
+## Local Pebble build
+
+If you already have the Pebble/Rebble SDK installed locally:
+
+```sh
+cd Tamagotchi
+npm ci
+pebble build
+```
+
+The local build output is written under `Tamagotchi/build/`.
 
 [Pebble Store Link](https://apps.repebble.com/216a0f62c6e44aac8f725e68)
 [Rebble Store Link](https://apps.rebble.io/en_US/application/69e19d25cc376400090073d5)
